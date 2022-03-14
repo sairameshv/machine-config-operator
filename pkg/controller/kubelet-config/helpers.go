@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -147,6 +148,9 @@ func createNewDefaultNodeconfig() *osev1.Node {
 // updateOriginalKubeConfigwithNodeConfig updates the original Kubelet Configuration based on the Nodespecific configuration
 func updateOriginalKubeConfigwithNodeConfig(node *osev1.Node, originalKubeletConfig *kubeletconfigv1beta1.KubeletConfiguration) error {
 	if node != nil {
+		if reflect.DeepEqual(node.Spec, osev1.NodeSpec{}) {
+			return fmt.Errorf("empty node resource spec found")
+		}
 		// updating the kubelet specific fields based on the Node's workerlatency profile.
 		// (TODO): The durations can be replaced with the defined constants in the openshift/api repository once the respective changes are merged.
 		switch node.Spec.WorkerLatencyProfile {
@@ -257,6 +261,15 @@ func getManagedFeaturesKey(pool *mcfgv1.MachineConfigPool, client mcfgclientset.
 // Deprecated: use getManagedFeaturesKey
 func getManagedFeaturesKeyDeprecated(pool *mcfgv1.MachineConfigPool) string {
 	return fmt.Sprintf("98-%s-%s-kubelet", pool.Name, pool.ObjectMeta.UID)
+}
+
+func getManagedNodeKey(pool *mcfgv1.MachineConfigPool, client mcfgclientset.Interface) (string, error) {
+	return ctrlcommon.GetManagedKey(pool, client, "97", "kubelet", getManagedNodeKeyDeprecated(pool))
+}
+
+// Deprecated: use getManagedNodeKey
+func getManagedNodeKeyDeprecated(pool *mcfgv1.MachineConfigPool) string {
+	return fmt.Sprintf("97-%s-%s-kubelet", pool.Name, pool.ObjectMeta.UID)
 }
 
 // Deprecated: use getManagedKubeletConfigKey

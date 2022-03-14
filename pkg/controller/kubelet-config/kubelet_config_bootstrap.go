@@ -47,10 +47,7 @@ func RunKubeletBootstrap(templateDir string, kubeletConfigs []*mcfgv1.KubeletCon
 			if node == nil {
 				node = createNewDefaultNodeconfig()
 			}
-			err = updateOriginalKubeConfigwithNodeConfig(node, originalKubeConfig)
-			if err != nil {
-				return nil, err
-			}
+			updateOriginalKubeConfigwithNodeConfig(node, originalKubeConfig)
 
 			if kubeletConfig.Spec.TLSSecurityProfile != nil {
 				// Inject TLS Options from Spec
