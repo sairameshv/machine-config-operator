@@ -26,7 +26,7 @@ require (
 	github.com/imdario/mergo v0.3.12
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/openshift/api v0.0.0-20220310165943-abf6417c2748
-	github.com/openshift/client-go v0.0.0-20211209144617-7385dd6338e3
+	github.com/openshift/client-go v0.0.0-20220302123837-25b55b99bd24
 	github.com/openshift/library-go v0.0.0-20211220195323-eca2c467c492
 	github.com/openshift/runtime-utils v0.0.0-20220225175100-8dec0d84fb39
 	github.com/pkg/errors v0.9.1
@@ -282,6 +282,7 @@ replace (
 	github.com/godbus/dbus => github.com/godbus/dbus v0.0.0-20190623212516-8a1682060722
 	github.com/googleapis/gnostic => github.com/googleapis/gnostic v0.4.1
 	github.com/opencontainers/runtime-spec => github.com/opencontainers/runtime-spec v0.1.2-0.20190408193819-a1b50f621a48
+	github.com/openshift/api => github.com/swghosh/api v0.0.0-20220314150208-1d1610eb722f
 	github.com/openshift/cluster-api => github.com/openshift/cluster-api v0.0.0-20191129101638-b09907ac6668
 	github.com/securego/gosec => github.com/securego/gosec v0.0.0-20190709033609-4b59c948083c
 	k8s.io/api => k8s.io/api v0.23.0
