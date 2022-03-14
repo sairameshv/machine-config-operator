@@ -92,6 +92,9 @@ type Controller struct {
 	featLister       oselistersv1.FeatureGateLister
 	featListerSynced cache.InformerSynced
 
+	nodeLister       oselistersv1.NodeLister
+	nodeListerSynced cache.InformerSynced
+
 	apiserverLister       oselistersv1.APIServerLister
 	apiserverListerSynced cache.InformerSynced
 
@@ -106,6 +109,7 @@ func New(
 	ccInformer mcfginformersv1.ControllerConfigInformer,
 	mkuInformer mcfginformersv1.KubeletConfigInformer,
 	featInformer oseinformersv1.FeatureGateInformer,
+	nodeInformer oseinformersv1.NodeInformer,
 	apiserverInformer oseinformersv1.APIServerInformer,
 	kubeClient clientset.Interface,
 	mcfgClient mcfgclientset.Interface,
@@ -134,6 +138,12 @@ func New(
 		DeleteFunc: ctrl.deleteFeature,
 	})
 
+	nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    ctrl.addKubeletConfig,
+		UpdateFunc: ctrl.updateKubeletConfig,
+		DeleteFunc: ctrl.deleteKubeletConfig,
+	})
+
 	ctrl.syncHandler = ctrl.syncKubeletConfig
 	ctrl.enqueueKubeletConfig = ctrl.enqueue
 
@@ -148,6 +158,9 @@ func New(
 
 	ctrl.featLister = featInformer.Lister()
 	ctrl.featListerSynced = featInformer.Informer().HasSynced
+
+	ctrl.nodeLister = nodeInformer.Lister()
+	ctrl.nodeListerSynced = nodeInformer.Informer().HasSynced
 
 	ctrl.apiserverLister = apiserverInformer.Lister()
 	ctrl.apiserverListerSynced = apiserverInformer.Informer().HasSynced
@@ -507,6 +520,15 @@ func (ctrl *Controller) syncKubeletConfig(key string) error {
 		return ctrl.syncStatusOnly(cfg, err)
 	}
 
+	node, err := ctrl.nodeLister.Get(ctrlcommon.ClusterNodeInstanceName)
+	if macherrors.IsNotFound(err) {
+		node = createNewDefaultNodeconfig()
+	} else if err != nil {
+		glog.V(2).Infof("%v", err)
+		err := fmt.Errorf("could not fetch Node: %v", err)
+		return ctrl.syncStatusOnly(cfg, err)
+	}
+
 	for _, pool := range mcpPools {
 		if pool.Spec.Configuration.Name == "" {
 			updateDelay := 5 * time.Second
@@ -539,6 +561,12 @@ func (ctrl *Controller) syncKubeletConfig(key string) error {
 		originalKubeConfig, err := generateOriginalKubeletConfigWithFeatureGates(cc, ctrl.templatesDir, role, features)
 		if err != nil {
 			return ctrl.syncStatusOnly(cfg, err, "could not get original kubelet config: %v", err)
+		}
+
+		// updating the kubelet configuration with the Node specific configuration.
+		err = updateOriginalKubeConfigwithNodeConfig(node, originalKubeConfig)
+		if err != nil {
+			return ctrl.syncStatusOnly(cfg, err, "could not update the original kubelet config with node speific configuration: %v", err)
 		}
 
 		// Get the default API Server Security Profile

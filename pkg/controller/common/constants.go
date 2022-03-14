@@ -27,4 +27,7 @@ const (
 
 	// ClusterFeatureInstanceName is a singleton name for featureGate configuration
 	ClusterFeatureInstanceName = "cluster"
+
+	// ClusterNodeInstanceName is a singleton name for node configuration
+	ClusterNodeInstanceName = "cluster"
 )

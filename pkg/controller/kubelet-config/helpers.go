@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 
 	ign3types "github.com/coreos/ignition/v2/config/v3_2/types"
 	"github.com/imdario/mergo"
@@ -129,6 +130,37 @@ func createNewDefaultFeatureGate() *osev1.FeatureGate {
 			},
 		},
 	}
+}
+
+func createNewDefaultNodeconfig() *osev1.Node {
+	return &osev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: ctrlcommon.ClusterNodeInstanceName,
+		},
+		Spec: osev1.NodeSpec{
+			CgroupMode:           osev1.CgroupModeDefault,
+			WorkerLatencyProfile: osev1.DefaultUpdateDefaultReaction,
+		},
+	}
+}
+
+// updateOriginalKubeConfigwithNodeConfig updates the original Kubelet Configuration based on the Nodespecific configuration
+func updateOriginalKubeConfigwithNodeConfig(node *osev1.Node, originalKubeletConfig *kubeletconfigv1beta1.KubeletConfiguration) error {
+	if node != nil {
+		// updating the kubelet specific fields based on the Node's workerlatency profile.
+		// (TODO): The durations can be replaced with the defined constants in the openshift/api repository once the respective changes are merged.
+		switch node.Spec.WorkerLatencyProfile {
+		case osev1.MediumUpdateAverageReaction:
+			originalKubeletConfig.NodeStatusUpdateFrequency = metav1.Duration{Duration: 20 * time.Second}
+		case osev1.LowUpdateSlowReaction:
+			originalKubeletConfig.NodeStatusUpdateFrequency = metav1.Duration{Duration: 60 * time.Second}
+		default:
+			originalKubeletConfig.NodeStatusUpdateFrequency = metav1.Duration{Duration: 10 * time.Second}
+		}
+		// The kubelet configuration can be updated based on the cgroupmode as well here.
+		return nil
+	}
+	return fmt.Errorf("node configuration not found, failed to update the original kubelet configuration")
 }
 
 func findKubeletConfig(mc *mcfgv1.MachineConfig) (*ign3types.File, error) {
