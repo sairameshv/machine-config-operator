@@ -259,6 +259,15 @@ func getManagedFeaturesKeyDeprecated(pool *mcfgv1.MachineConfigPool) string {
 	return fmt.Sprintf("98-%s-%s-kubelet", pool.Name, pool.ObjectMeta.UID)
 }
 
+func getManagedNodeKey(pool *mcfgv1.MachineConfigPool, client mcfgclientset.Interface) (string, error) {
+	return ctrlcommon.GetManagedKey(pool, client, "97", "kubelet", getManagedNodeKeyDeprecated(pool))
+}
+
+// Deprecated: use getManagedNodeKey
+func getManagedNodeKeyDeprecated(pool *mcfgv1.MachineConfigPool) string {
+	return fmt.Sprintf("97-%s-%s-kubelet", pool.Name, pool.ObjectMeta.UID)
+}
+
 // Deprecated: use getManagedKubeletConfigKey
 func getManagedKubeletConfigKeyDeprecated(pool *mcfgv1.MachineConfigPool) string {
 	return fmt.Sprintf("99-%s-%s-kubelet", pool.Name, pool.ObjectMeta.UID)
