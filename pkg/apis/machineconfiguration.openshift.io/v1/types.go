@@ -13,6 +13,9 @@ import (
 // For example: `master` or `worker`
 const MachineConfigRoleLabelKey = "machineconfiguration.openshift.io/role"
 
+// KubeletConfigRoleLabel is the label that must be present in the KubeletConfig CR
+const KubeletConfigRoleLabel = "pools.operator.machineconfiguration.openshift.io/"
+
 // +genclient
 // +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

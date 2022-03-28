@@ -665,6 +665,35 @@ func MachineConfigFromRawIgnConfig(role, name string, rawIgnCfg []byte) (*mcfgv1
 	}, nil
 }
 
+// KubeletConfigFromIgnConfig creates a KubeletConfig with the provided Ignition config
+func KubeletConfigFromIgnConfig(role, name string, ignCfg interface{}) (*mcfgv1.KubeletConfig, error) {
+	rawIgnCfg, err := json.Marshal(ignCfg)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling Ignition config: %v", err)
+	}
+	return KubeletConfigFromRawIgnConfig(role, name, rawIgnCfg)
+}
+
+// KubeletConfigFromRawIgnConfig creates a KubeletConfig with the provided raw Ignition config
+func KubeletConfigFromRawIgnConfig(role, name string, rawIgnCfg []byte) (*mcfgv1.KubeletConfig, error) {
+	labels := map[string]string{
+		mcfgv1.KubeletConfigRoleLabel + role: "",
+	}
+	return &mcfgv1.KubeletConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Spec: mcfgv1.KubeletConfigSpec{
+			MachineConfigPoolSelector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			KubeletConfig: &runtime.RawExtension{
+				Raw: rawIgnCfg,
+			},
+		},
+	}, nil
+}
+
 // GetManagedKey returns the managed key for sub-controllers, handling any migration needed
 func GetManagedKey(pool *mcfgv1.MachineConfigPool, client mcfgclientset.Interface, prefix, suffix, deprecatedKey string) (string, error) {
 	managedKey := fmt.Sprintf("%s-%s-generated-%s", prefix, pool.Name, suffix)

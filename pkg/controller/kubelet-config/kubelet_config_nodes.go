@@ -3,6 +3,7 @@ package kubeletconfig
 import (
 	"context"
 	"fmt"
+	"k8s.io/kubelet/config/v1beta1"
 	"reflect"
 	"time"
 
@@ -63,21 +64,6 @@ func (ctrl *Controller) syncNodeHandler(key string) error {
 		glog.V(4).Infof("Finished syncing node handler %q (%v)", key, time.Since(startTime))
 	}()
 
-	// Fetch the Feature
-	features, err := ctrl.featLister.Get(ctrlcommon.ClusterFeatureInstanceName)
-	if errors.IsNotFound(err) {
-		glog.V(2).Infof("FeatureSet %v is missing, using default", key)
-		features = &osev1.FeatureGate{
-			Spec: osev1.FeatureGateSpec{
-				FeatureGateSelection: osev1.FeatureGateSelection{
-					FeatureSet: osev1.Default,
-				},
-			},
-		}
-	} else if err != nil {
-		return err
-	}
-
 	// Fetch the Node
 	node, err := ctrl.nodeLister.Get(ctrlcommon.ClusterNodeInstanceName)
 	if errors.IsNotFound(err) {
@@ -87,11 +73,12 @@ func (ctrl *Controller) syncNodeHandler(key string) error {
 		glog.V(2).Infof("%v", err)
 		err := fmt.Errorf("could not fetch Node: %v", err)
 		return err
-	}
-
-	cc, err := ctrl.ccLister.Get(ctrlcommon.ControllerConfigName)
-	if err != nil {
-		return fmt.Errorf("could not get ControllerConfig %v", err)
+	} else if err == nil {
+		// checking if the Node spec is empty and accordingly returning from here.
+		if reflect.DeepEqual(node.Spec, osev1.NodeSpec{}) {
+			glog.V(2).Info("empty Node resource found")
+			return nil
+		}
 	}
 
 	// Find all MachineConfigPools
@@ -106,8 +93,27 @@ func (ctrl *Controller) syncNodeHandler(key string) error {
 		if role == "master" {
 			continue
 		}
-		// updating the node status based on the latest machineconfigpool status
-		err = ctrl.updateNodestatus(pool, node)
+
+		// Get KubeletConfig
+		managedKey, err := getManagedNodeKey(pool, ctrl.client)
+		if err != nil {
+			return err
+		}
+		kc, err := ctrl.client.MachineconfigurationV1().KubeletConfigs().Get(context.TODO(), managedKey, metav1.GetOptions{})
+		if err != nil && !errors.IsNotFound(err) {
+			return err
+		}
+		isNotFound := errors.IsNotFound(err)
+		if isNotFound {
+			ignConfig := ctrlcommon.NewIgnConfig()
+			kc, err = ctrlcommon.KubeletConfigFromIgnConfig(role, managedKey, ignConfig)
+			if err != nil {
+				return err
+			}
+		}
+
+		// updating the node status based on the latest kubelet config CR status
+		err = ctrl.updateNodestatus(kc, node)
 		if err != nil {
 			return err
 		}
@@ -116,28 +122,8 @@ func (ctrl *Controller) syncNodeHandler(key string) error {
 		if nodeCondition == osev1.ConditionFalse {
 			return fmt.Errorf("unable to modify the kubelet configuration on the node, node condition status not ready")
 		}
-		// Get MachineConfig
-		managedKey, err := getManagedNodeKey(pool, ctrl.client)
-		if err != nil {
-			return err
-		}
-		mc, err := ctrl.client.MachineconfigurationV1().MachineConfigs().Get(context.TODO(), managedKey, metav1.GetOptions{})
-		if err != nil && !errors.IsNotFound(err) {
-			return err
-		}
-		isNotFound := errors.IsNotFound(err)
-		if isNotFound {
-			ignConfig := ctrlcommon.NewIgnConfig()
-			mc, err = ctrlcommon.MachineConfigFromIgnConfig(role, managedKey, ignConfig)
-			if err != nil {
-				return err
-			}
-		}
 
-		originalKubeConfig, err := generateOriginalKubeletConfigWithFeatureGates(cc, ctrl.templatesDir, role, features)
-		if err != nil {
-			return err
-		}
+		var originalKubeConfig = new(v1beta1.KubeletConfiguration)
 
 		// updating the kubelet configuration with the Node specific configuration.
 		err = updateOriginalKubeConfigwithNodeConfig(node, originalKubeConfig)
@@ -145,39 +131,36 @@ func (ctrl *Controller) syncNodeHandler(key string) error {
 			return err
 		}
 
-		// Encode the new config into raw JSON
-		cfgIgn, err := kubeletConfigToIgnFile(originalKubeConfig)
+		byteData, err := json.Marshal(originalKubeConfig)
 		if err != nil {
 			return err
 		}
-
-		tempIgnConfig := ctrlcommon.NewIgnConfig()
-		tempIgnConfig.Storage.Files = append(tempIgnConfig.Storage.Files, *cfgIgn)
-		rawCfgIgn, err := json.Marshal(tempIgnConfig)
-		if err != nil {
-			return err
-		}
-		if rawCfgIgn == nil {
+		if byteData == nil {
 			continue
 		}
-
-		mc.Spec.Config.Raw = rawCfgIgn
-		mc.ObjectMeta.Annotations = map[string]string{
+		kc.Spec.KubeletConfig.Raw = byteData
+		kc.ObjectMeta.Annotations = map[string]string{
 			ctrlcommon.GeneratedByControllerVersionAnnotationKey: version.Hash,
 		}
 		// Create or Update, on conflict retry
 		if err := retry.RetryOnConflict(updateBackoff, func() error {
 			var err error
 			if isNotFound {
-				_, err = ctrl.client.MachineconfigurationV1().MachineConfigs().Create(context.TODO(), mc, metav1.CreateOptions{})
+				_, err = ctrl.client.MachineconfigurationV1().KubeletConfigs().Create(context.TODO(), kc, metav1.CreateOptions{})
 			} else {
-				_, err = ctrl.client.MachineconfigurationV1().MachineConfigs().Update(context.TODO(), mc, metav1.UpdateOptions{})
+				_, err = ctrl.client.MachineconfigurationV1().KubeletConfigs().Update(context.TODO(), kc, metav1.UpdateOptions{})
 			}
 			return err
 		}); err != nil {
-			return fmt.Errorf("Could not Create/Update MachineConfig: %v", err)
+			return fmt.Errorf("Could not Create/Update KubeletConfig: %v", err)
 		}
 		glog.Infof("Applied Node configuration %v on MachineConfigPool %v", key, pool.Name)
+
+		// updating the node status based on the latest kubelet config CR status
+		err = ctrl.updateNodestatus(kc, node)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -231,7 +214,7 @@ func (ctrl *Controller) deleteNode(obj interface{}) {
 	glog.V(4).Infof("Deleted Node %s and restored default config", node.Name)
 }
 
-// fetchNodeconditionstatus fetches the condition status of the provided node object
+// fetchNodeconditionstatus fetches the condition status written by the MCO from the provided node object's status
 func fetchNodeconditionstatus(node *osev1.Node) osev1.ConditionStatus {
 	if node != nil {
 		if len(node.Status.WorkerLatencyProfileStatus.Conditions) > 0 {
@@ -246,37 +229,32 @@ func fetchNodeconditionstatus(node *osev1.Node) osev1.ConditionStatus {
 }
 
 // updateNodestatus updates the status of the node object based on the machineconfigpool status
-func (ctrl *Controller) updateNodestatus(pool *mcfgv1.MachineConfigPool, node *osev1.Node) error {
-	if pool == nil || node == nil {
-		return fmt.Errorf("unable to update the node status, incomplete data, machineconfigpool: %v, node: %v", pool, node)
+func (ctrl *Controller) updateNodestatus(kc *mcfgv1.KubeletConfig, node *osev1.Node) error {
+	if kc == nil || node == nil {
+		return fmt.Errorf("unable to update the node status, incomplete data, kubelet config: %v, node: %v", kc, node)
 	}
 	var nodeCondition osev1.WorkerLatencyStatusCondition
 
 	nodeCondition.Owner = osev1.MachineConfigOperator
 	nodeCondition.LastTransitionTime = metav1.Now()
 	nodeCondition.Status = osev1.ConditionUnknown
-	switch {
-	case mcfgv1.IsMachineConfigPoolConditionTrue(pool.Status.Conditions, mcfgv1.MachineConfigPoolRenderDegraded):
-		cond := mcfgv1.GetMachineConfigPoolCondition(pool.Status, mcfgv1.MachineConfigPoolRenderDegraded)
-		nodeCondition.Type = osev1.WorkerLatencyProfileDegraded
-		nodeCondition.Status = osev1.ConditionFalse
-		nodeCondition.Reason = cond.Reason
-		nodeCondition.Message = cond.Message
-	case mcfgv1.IsMachineConfigPoolConditionTrue(pool.Status.Conditions, mcfgv1.MachineConfigPoolNodeDegraded):
-		cond := mcfgv1.GetMachineConfigPoolCondition(pool.Status, mcfgv1.MachineConfigPoolNodeDegraded)
-		nodeCondition.Type = osev1.WorkerLatencyProfileDegraded
-		nodeCondition.Status = osev1.ConditionFalse
-		nodeCondition.Reason = cond.Reason
-		nodeCondition.Message = cond.Message
-	case mcfgv1.IsMachineConfigPoolConditionTrue(pool.Status.Conditions, mcfgv1.MachineConfigPoolUpdated):
-		nodeCondition.Type = osev1.WorkerLatencyProfileComplete
-		nodeCondition.Status = osev1.ConditionTrue
-	case mcfgv1.IsMachineConfigPoolConditionTrue(pool.Status.Conditions, mcfgv1.MachineConfigPoolUpdating):
-		nodeCondition.Type = osev1.WorkerLatencyProfileProgressing
-		nodeCondition.Status = osev1.ConditionFalse
-		nodeCondition.Message = fmt.Sprintf("%d (ready %d) out of %d nodes are updating to latest configuration %s", pool.Status.UpdatedMachineCount, pool.Status.ReadyMachineCount, pool.Status.MachineCount, pool.Spec.Configuration.Name)
-	}
 
+	// updating the node CR status based on the latest KubeletConfig CR status
+	if len(kc.Status.Conditions) > 0 {
+		switch kc.Status.Conditions[len(kc.Status.Conditions)-1].Type {
+		case mcfgv1.KubeletConfigFailure:
+			nodeCondition.Status = osev1.ConditionFalse
+			nodeCondition.Type = osev1.WorkerLatencyProfileDegraded
+		case mcfgv1.KubeletConfigSuccess:
+			nodeCondition.Status = osev1.ConditionTrue
+			nodeCondition.Type = osev1.WorkerLatencyProfileComplete
+			// (TODO) further cases can be added in future based on the Kubelet Config CR Status condition types
+		default:
+			nodeCondition.Status = osev1.ConditionUnknown
+		}
+		nodeCondition.Reason = kc.Status.Conditions[len(kc.Status.Conditions)-1].Reason
+		nodeCondition.Message = kc.Status.Conditions[len(kc.Status.Conditions)-1].Message
+	}
 	var (
 		index     int
 		isPresent bool
