@@ -93,12 +93,12 @@ func (ctrl *Controller) syncNodeHandler(key string) error {
 		if role == "master" {
 			continue
 		}
-
-		// Get KubeletConfig
+    // Get KubeletConfig
 		managedKey, err := getManagedNodeKey(pool, ctrl.client)
 		if err != nil {
 			return err
 		}
+
 		kc, err := ctrl.client.MachineconfigurationV1().KubeletConfigs().Get(context.TODO(), managedKey, metav1.GetOptions{})
 		if err != nil && !errors.IsNotFound(err) {
 			return err
@@ -255,6 +255,7 @@ func (ctrl *Controller) updateNodestatus(kc *mcfgv1.KubeletConfig, node *osev1.N
 		nodeCondition.Reason = kc.Status.Conditions[len(kc.Status.Conditions)-1].Reason
 		nodeCondition.Message = kc.Status.Conditions[len(kc.Status.Conditions)-1].Message
 	}
+
 	var (
 		index     int
 		isPresent bool
