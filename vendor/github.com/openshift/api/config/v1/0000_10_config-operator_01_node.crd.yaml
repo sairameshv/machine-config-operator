@@ -43,6 +43,9 @@ spec:
                     - v1
                     - v2
                     - ""
+                eventedPleg:
+                  description: EventedPleg enables the corresponding flags both in the Kubelet and the CRI-O to support the Evented PLEG feature
+                  type: boolean
                 workerLatencyProfile:
                   description: WorkerLatencyProfile determins the how fast the kubelet is updating the status and corresponding reaction of the cluster
                   type: string

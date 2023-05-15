@@ -17,7 +17,10 @@ import (
 // +kubebuilder:resource:path=nodes,scope=Cluster
 // +kubebuilder:subresource:status
 type Node struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+
+	// metadata is the standard object's metadata.
+	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// spec holds user settable values for configuration
@@ -39,6 +42,11 @@ type NodeSpec struct {
 	// the status and corresponding reaction of the cluster
 	// +optional
 	WorkerLatencyProfile WorkerLatencyProfileType `json:"workerLatencyProfile,omitempty"`
+
+	// EventedPleg enables the corresponding flags both in the Kubelet
+	// and the CRI-O to support the Evented PLEG feature
+	// +optional
+	EventedPleg *bool `json:"eventedPleg,omitempty"`
 }
 
 type NodeStatus struct{}
@@ -102,6 +110,9 @@ const (
 // +openshift:compatibility-gen:level=1
 type NodeList struct {
 	metav1.TypeMeta `json:",inline"`
+
+	// metadata is the standard list's metadata.
+	// More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
 	metav1.ListMeta `json:"metadata"`
 
 	Items []Node `json:"items"`
