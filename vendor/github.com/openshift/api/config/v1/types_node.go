@@ -39,6 +39,7 @@ type NodeSpec struct {
 	// the status and corresponding reaction of the cluster
 	// +optional
 	WorkerLatencyProfile WorkerLatencyProfileType `json:"workerLatencyProfile,omitempty"`
+	EventedPleg *bool `json:"eventedPleg,omitempty"`
 }
 
 type NodeStatus struct{}
