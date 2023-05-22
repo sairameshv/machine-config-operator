@@ -62,6 +62,8 @@ func TestNodeConfigDefault(t *testing.T) {
 			nodeConfig := createNewDefaultNodeconfig()
 			nodeConfig.Spec.WorkerLatencyProfile = osev1.DefaultUpdateDefaultReaction
 			nodeConfig.Spec.CgroupMode = osev1.CgroupModeDefault
+			eventedPleg := true
+			nodeConfig.Spec.EventedPleg = &eventedPleg
 			f.nodeLister = append(f.nodeLister, nodeConfig)
 			f.oseobjects = append(f.oseobjects, nodeConfig)
 
@@ -154,6 +156,8 @@ func TestNodeConfigCustom(t *testing.T) {
 
 			nodeConfig.Spec.WorkerLatencyProfile = osev1.DefaultUpdateDefaultReaction
 			nodeConfig.Spec.CgroupMode = osev1.CgroupModeDefault
+			eventedPleg := true
+			nodeConfig.Spec.EventedPleg = &eventedPleg
 			f.nodeLister = append(f.nodeLister, nodeConfig)
 			f.oseobjects = append(f.oseobjects, nodeConfig)
 

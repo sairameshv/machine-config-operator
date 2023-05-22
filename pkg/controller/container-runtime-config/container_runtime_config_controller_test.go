@@ -65,6 +65,7 @@ type fixture struct {
 	mccrLister []*mcfgv1.ContainerRuntimeConfig
 	imgLister  []*apicfgv1.Image
 	cvLister   []*apicfgv1.ClusterVersion
+	nodeLister []*apicfgv1.Node
 	icspLister []*apioperatorsv1alpha1.ImageContentSourcePolicy
 	idmsLister []*apicfgv1.ImageDigestMirrorSet
 	itmsLister []*apicfgv1.ImageTagMirrorSet
@@ -197,6 +198,16 @@ func newClusterVersionConfig(name, desiredImage string) *apicfgv1.ClusterVersion
 	}
 }
 
+func newNodeConfig(name string, eventedPleg bool) *apicfgv1.Node {
+	return &apicfgv1.Node{
+		TypeMeta:   metav1.TypeMeta{APIVersion: apicfgv1.SchemeGroupVersion.String()},
+		ObjectMeta: metav1.ObjectMeta{Name: name, UID: types.UID(utilrand.String(5)), Generation: 1},
+		Spec: apicfgv1.NodeSpec{
+			EventedPleg: &eventedPleg,
+		},
+	}
+}
+
 func (f *fixture) newController() *Controller {
 	f.client = fake.NewSimpleClientset(f.objects...)
 	f.imgClient = fakeconfigv1client.NewSimpleClientset(f.imgObjects...)
@@ -225,6 +236,7 @@ func (f *fixture) newController() *Controller {
 	c.idmsListerSynced = alwaysReady
 	c.itmsListerSynced = alwaysReady
 	c.clusterVersionListerSynced = alwaysReady
+	c.nodeConfigListerSynced = alwaysReady
 	c.eventRecorder = &record.FakeRecorder{}
 
 	stopCh := make(chan struct{})
@@ -250,6 +262,9 @@ func (f *fixture) newController() *Controller {
 	}
 	for _, c := range f.cvLister {
 		ci.Config().V1().ClusterVersions().Informer().GetIndexer().Add(c)
+	}
+	for _, c := range f.nodeLister {
+		ci.Config().V1().Nodes().Informer().GetIndexer().Add(c)
 	}
 	for _, c := range f.icspLister {
 		oi.Operator().V1alpha1().ImageContentSourcePolicies().Informer().GetIndexer().Add(c)
@@ -287,6 +302,18 @@ func (f *fixture) runController(mcpname string, expectError bool) {
 		f.t.Errorf("error syncing containerruntimeconfigs: %v", err)
 	} else if expectError && err == nil {
 		f.t.Error("expected error syncing containerruntimeconfigs, got nil")
+	}
+
+	f.validateActions()
+}
+
+func (f *fixture) runNodeController(mcpname string, expectError bool) {
+	c := f.newController()
+	err := c.syncNodeCfgHandler(mcpname)
+	if !expectError && err != nil {
+		f.t.Errorf("error syncing nodeconfigs: %v", err)
+	} else if expectError && err == nil {
+		f.t.Error("expected error syncing nodeconfigs, got nil")
 	}
 
 	f.validateActions()
@@ -629,6 +656,80 @@ func TestImageConfigCreate(t *testing.T) {
 			for _, mcName := range []string{mcs1.Name, mcs2.Name} {
 				f.verifyRegistriesConfigAndPolicyJSONContents(t, mcName, imgcfg1, nil, nil, nil, cc.Spec.ReleaseImage, true, true)
 			}
+		})
+	}
+}
+
+// TestNodeConfigCreate ensures that a creation/update of MC happens when a node config is created.
+// It tests that the necessary get, create, and update steps happen in the correct order.
+func TestNodeConfigCreate(t *testing.T) {
+	for _, platform := range []apicfgv1.PlatformType{apicfgv1.AWSPlatformType, apicfgv1.NonePlatformType, "unrecognized"} {
+		t.Run(string(platform), func(t *testing.T) {
+			f := newFixture(t)
+			cc := newControllerConfig(ctrlcommon.ControllerConfigName, platform)
+			mcp := helpers.NewMachineConfigPool("master", nil, helpers.MasterSelector, "v0")
+			mcp2 := helpers.NewMachineConfigPool("worker", nil, helpers.WorkerSelector, "v0")
+			nodeCfg := newNodeConfig("cluster", true)
+			keyReg1 := getManagedKeyEventedPleg(mcp)
+			keyReg2 := getManagedKeyEventedPleg(mcp2)
+			mcs1 := helpers.NewMachineConfig(keyReg1, map[string]string{"node-role": "master"}, "dummy://", []ign3types.File{{}})
+			mcs2 := helpers.NewMachineConfig(keyReg2, map[string]string{"node-role": "worker"}, "dummy://", []ign3types.File{{}})
+
+			f.ccLister = append(f.ccLister, cc)
+			f.mcpLister = append(f.mcpLister, mcp)
+			f.mcpLister = append(f.mcpLister, mcp2)
+			f.nodeLister = append(f.nodeLister, nodeCfg)
+
+			f.expectGetMachineConfigAction(mcs1)
+			f.expectCreateMachineConfigAction(mcs1)
+			f.expectGetMachineConfigAction(mcs2)
+			f.expectCreateMachineConfigAction(mcs2)
+
+			f.runNodeController(getKeyFromConfigNode(nodeCfg, t), false)
+		})
+	}
+}
+
+// TestNodeConfigCreatewithoutEventedPleg ensures that a creation/update of MC happens when a node config is created.
+// It tests that the necessary get, create, and update steps happen in the correct order.
+func TestNodeConfigCreatewithoutEventedPleg(t *testing.T) {
+	for _, platform := range []apicfgv1.PlatformType{apicfgv1.AWSPlatformType, apicfgv1.NonePlatformType, "unrecognized"} {
+		t.Run(string(platform), func(t *testing.T) {
+			f := newFixture(t)
+			cc := newControllerConfig(ctrlcommon.ControllerConfigName, platform)
+			mcp := helpers.NewMachineConfigPool("master", nil, helpers.MasterSelector, "v0")
+			mcp2 := helpers.NewMachineConfigPool("worker", nil, helpers.WorkerSelector, "v0")
+			nodeCfg := newNodeConfig("cluster", false)
+
+			f.ccLister = append(f.ccLister, cc)
+			f.mcpLister = append(f.mcpLister, mcp)
+			f.mcpLister = append(f.mcpLister, mcp2)
+			f.nodeLister = append(f.nodeLister, nodeCfg)
+
+			// not expecting any machine configs to be created
+			f.runNodeController(getKeyFromConfigNode(nodeCfg, t), false)
+		})
+	}
+}
+
+// TestNodeConfigCreateUnsupportedName ensures that a creation/update of MC happens when a node config is created.
+// It tests that the necessary get, create, and update steps happen in the correct order.
+func TestNodeConfigCreateUnsupportedName(t *testing.T) {
+	for _, platform := range []apicfgv1.PlatformType{apicfgv1.AWSPlatformType, apicfgv1.NonePlatformType, "unrecognized"} {
+		t.Run(string(platform), func(t *testing.T) {
+			f := newFixture(t)
+			cc := newControllerConfig(ctrlcommon.ControllerConfigName, platform)
+			mcp := helpers.NewMachineConfigPool("master", nil, helpers.MasterSelector, "v0")
+			mcp2 := helpers.NewMachineConfigPool("worker", nil, helpers.WorkerSelector, "v0")
+			nodeCfg := newNodeConfig("unsupported-instance-name", true)
+
+			f.ccLister = append(f.ccLister, cc)
+			f.mcpLister = append(f.mcpLister, mcp)
+			f.mcpLister = append(f.mcpLister, mcp2)
+			f.nodeLister = append(f.nodeLister, nodeCfg)
+
+			// not expecting any machine configs to be created
+			f.runNodeController(getKeyFromConfigNode(nodeCfg, t), true)
 		})
 	}
 }
@@ -1313,6 +1414,15 @@ func getKey(config *mcfgv1.ContainerRuntimeConfig, t *testing.T) string {
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(config)
 	if err != nil {
 		t.Errorf("Unexpected error getting key for config %v: %v", config.Name, err)
+		return ""
+	}
+	return key
+}
+
+func getKeyFromConfigNode(node *apicfgv1.Node, t *testing.T) string {
+	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(node)
+	if err != nil {
+		t.Errorf("Unexpected error getting key for Config Node %v: %v", node.Name, err)
 		return ""
 	}
 	return key

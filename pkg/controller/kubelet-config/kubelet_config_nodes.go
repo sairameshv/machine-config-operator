@@ -128,9 +128,6 @@ func (ctrl *Controller) syncNodeConfigHandler(key string) error {
 				return err
 			}
 		}
-		if nodeConfig.Spec.EventedPleg != nil && *nodeConfig.Spec.EventedPleg {
-			originalKubeConfig.FeatureGates["EventedPLEG"] = true
-		}
 		// The following code updates the MC with the relevant CGroups version
 		err = updateMachineConfigwithCgroup(nodeConfig, mc)
 		if err != nil {

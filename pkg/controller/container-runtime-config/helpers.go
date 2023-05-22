@@ -109,10 +109,10 @@ type tomlConfigCRIODefaultRuntime struct {
 	} `toml:"crio"`
 }
 
-// tomlConfigEnablePodEvents is used for conversions when enable-pod-events is changed
-// TOML-friendly (it has all of the explicit tables). It's just used for
+// tomlConfigEventedPleg is used for conversions when enable-pod-events is changed
+// TOML-friendly (it has all the explicit tables). It's just used for
 // conversions.
-type tomlConfigEnablePodEvents struct {
+type tomlConfigEventedPleg struct {
 	Crio struct {
 		Runtime struct {
 			EnablePodEvents bool `toml:"enable_pod_events,omitempty"`
@@ -275,8 +275,8 @@ func getManagedKeyReg(pool *mcfgv1.MachineConfigPool, client mcfgclientset.Inter
 	return ctrlcommon.GetManagedKey(pool, client, "99", "registries", getManagedKeyRegDeprecated(pool))
 }
 
-func getManagedKeyEnablePodEvents(pool *mcfgv1.MachineConfigPool) string {
-	return fmt.Sprintf("97-%s-generated-crio-enable-pod-events", pool.Name)
+func getManagedKeyEventedPleg(pool *mcfgv1.MachineConfigPool) string {
+	return fmt.Sprintf("97-%s-generated-crio-evented-pleg", pool.Name)
 }
 
 func getConfigNode(ctrl *Controller, key string) (*apicfgv1.Node, error) {
@@ -338,13 +338,13 @@ func updateStorageConfig(data []byte, internal *mcfgv1.ContainerRuntimeConfigura
 	return newData.Bytes(), nil
 }
 
-// createEnablePodEventsFile creates the drop-in file setting evented_pleg to true
-func createEnablePodEventsFile() []generatedConfigFile {
+// createEventedPlegFile creates the drop-in file setting evented_pleg to true
+func createEventedPlegFile() []generatedConfigFile {
 	var (
 		generatedConfigFileList []generatedConfigFile
 		err                     error
 	)
-	tomlConf := tomlConfigEnablePodEvents{}
+	tomlConf := tomlConfigEventedPleg{}
 	tomlConf.Crio.Runtime.EnablePodEvents = true
 	generatedConfigFileList, err = addTOMLgeneratedConfigFile(generatedConfigFileList, crioDropInFilePathEnablePodEvents, tomlConf)
 	if err != nil {

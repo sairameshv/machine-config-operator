@@ -1184,7 +1184,7 @@ func (ctrl *Controller) syncNodeConfig(key string) error {
 		err := fmt.Errorf("could not fetch Node config: %w", err)
 		return err
 	}
-	// cri-o drop-in file, MC are not created if the EventedPleg is false
+	// cri-o drop-in file, MC are not created if the EventedPleg is not set to true
 	if nodeConfig.Spec.EventedPleg == nil {
 		return nil
 	} else if !*nodeConfig.Spec.EventedPleg {
@@ -1199,31 +1199,30 @@ func (ctrl *Controller) syncNodeConfig(key string) error {
 	if err != nil {
 		return err
 	}
-	// Create the crio-enable-pod-events MC for all the available pools
+	// Create the crio-evented-pleg MC for all the available pools
 	for _, pool := range mcpPools {
-		managedKey := getManagedKeyEnablePodEvents(pool)
+		managedKey := getManagedKeyEventedPleg(pool)
 		mc, err := ctrl.client.MachineconfigurationV1().MachineConfigs().Get(context.TODO(), managedKey, metav1.GetOptions{})
 		isNotFound := errors.IsNotFound(err)
 		if err != nil && !isNotFound {
 			return fmt.Errorf("error checking for %s machine config: %v", managedKey, err)
 		}
-
 		tempIgnCfg := ctrlcommon.NewIgnConfig()
 		mc, err = ctrlcommon.MachineConfigFromIgnConfig(pool.Name, managedKey, tempIgnCfg)
 		if err != nil {
-			return fmt.Errorf("could not create crio-enable-pod-events MachineConfig from new Ignition config: %v", err)
+			return fmt.Errorf("could not create crio-evented-pleg MachineConfig from new Ignition config: %v", err)
 		}
-		rawCapsIgnition, err := json.Marshal(createNewIgnition(createEnablePodEventsFile()))
+		rawCapsIgnition, err := json.Marshal(createNewIgnition(createEventedPlegFile()))
 		if err != nil {
-			return fmt.Errorf("error marshalling crio-enable-pod-events config ignition: %v", err)
+			return fmt.Errorf("error marshalling crio-evented-pleg config ignition: %v", err)
 		}
 		mc.Spec.Config.Raw = rawCapsIgnition
-		// Create the crio-enable-pod-events MC
+		// Create the crio-evented-pleg MC
 		if err := retry.RetryOnConflict(updateBackoff, func() error {
 			_, err = ctrl.client.MachineconfigurationV1().MachineConfigs().Create(context.TODO(), mc, metav1.CreateOptions{})
 			return err
 		}); err != nil {
-			return fmt.Errorf("could not create MachineConfig for crio-enable-pod-events: %v", err)
+			return fmt.Errorf("could not create MachineConfig for crio-evented-pleg: %v", err)
 		}
 		glog.Infof("Applied Enable Pod Events MC %v on MachineConfigPool %v", managedKey, pool.Name)
 	}
