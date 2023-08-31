@@ -141,6 +141,7 @@ func createControllers(ctx *ctrlcommon.ControllerContext) []ctrlcommon.Controlle
 			ctx.InformerFactory.Machineconfiguration().V1().MachineConfigs(),
 			ctx.OpenShiftConfigKubeNamespacedInformerFactory.Core().V1().Secrets(),
 			ctx.ClientBuilder.KubeClientOrDie("template-controller"),
+			ctx.ClientBuilder.DynamicKubeClientOrDie("dynamic-template-controller"),
 			ctx.ClientBuilder.MachineConfigClientOrDie("template-controller"),
 			ctx.FeatureGateAccess,
 		),

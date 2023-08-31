@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -30,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	dynamic "k8s.io/client-go/dynamic"
 	coreinformersv1 "k8s.io/client-go/informers/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	corev1clientset "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -56,6 +59,7 @@ type Controller struct {
 
 	client        mcfgclientset.Interface
 	kubeClient    clientset.Interface
+	dynamicClient dynamic.Interface
 	eventRecorder record.EventRecorder
 
 	syncHandler             func(ccKey string) error
@@ -80,6 +84,7 @@ func New(
 	mcInformer mcfginformersv1.MachineConfigInformer,
 	secretsInformer coreinformersv1.SecretInformer,
 	kubeClient clientset.Interface,
+	dynamicKubeClient dynamic.Interface,
 	mcfgClient mcfgclientset.Interface,
 	fgAccess featuregates.FeatureGateAccess,
 ) *Controller {
@@ -91,6 +96,7 @@ func New(
 		templatesDir:  templatesDir,
 		client:        mcfgClient,
 		kubeClient:    kubeClient,
+		dynamicClient: dynamicKubeClient,
 		eventRecorder: ctrlcommon.NamespacedEventRecorder(eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: "machineconfigcontroller-templatecontroller"})),
 		queue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "machineconfigcontroller-templatecontroller"),
 	}
@@ -540,6 +546,33 @@ func (ctrl *Controller) syncControllerConfig(key string) error {
 		if err := ctrl.syncRunningStatus(cfg); err != nil {
 			return err
 		}
+	}
+	pprofile := schema.GroupVersionResource{
+		Group:    "performance.openshift.io",
+		Version:  "v2",
+		Resource: "performanceprofiles",
+	}
+	perfList, err := ctrl.dynamicClient.Resource(pprofile).Namespace("").List(context.TODO(), metav1.ListOptions{})
+	if len(perfList.Items) >= 1 {
+		configNode := schema.GroupVersionResource{
+			Group:    "config.openshift.io",
+			Version:  "v1",
+			Resource: "nodes",
+		}
+
+		nodeObject := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "config.openshift.io/v1",
+				"kind":       "Node",
+				"metadata": map[string]interface{}{
+					"name": "cluster",
+				},
+				"spec": map[string]interface{}{
+					"cgroupMode": "v1",
+				},
+			},
+		}
+		ctrl.dynamicClient.Resource(configNode).Namespace("").Update(context.TODO(), nodeObject, metav1.UpdateOptions{})
 	}
 
 	modified := updateControllerConfigCerts(cfg)
