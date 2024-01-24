@@ -24,6 +24,7 @@ import (
 	"github.com/openshift/runtime-utils/pkg/registries"
 	runtimeutils "github.com/openshift/runtime-utils/pkg/registries"
 	corev1 "k8s.io/api/core/v1"
+	macherrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
@@ -43,10 +44,11 @@ const (
 	policyConfigPath        = "/etc/containers/policy.json"
 	// CRIODropInFilePathLogLevel is the path at which changes to the crio config for log-level
 	// will be dropped in this is exported so that we can use it in the e2e-tests
-	CRIODropInFilePathLogLevel       = "/etc/crio/crio.conf.d/01-ctrcfg-logLevel"
-	crioDropInFilePathPidsLimit      = "/etc/crio/crio.conf.d/01-ctrcfg-pidsLimit"
-	crioDropInFilePathLogSizeMax     = "/etc/crio/crio.conf.d/01-ctrcfg-logSizeMax"
-	CRIODropInFilePathDefaultRuntime = "/etc/crio/crio.conf.d/01-ctrcfg-defaultRuntime"
+	CRIODropInFilePathLogLevel        = "/etc/crio/crio.conf.d/01-ctrcfg-logLevel"
+	crioDropInFilePathPidsLimit       = "/etc/crio/crio.conf.d/01-ctrcfg-pidsLimit"
+	crioDropInFilePathLogSizeMax      = "/etc/crio/crio.conf.d/01-ctrcfg-logSizeMax"
+	CRIODropInFilePathDefaultRuntime  = "/etc/crio/crio.conf.d/01-ctrcfg-defaultRuntime"
+	crioDropInFilePathEnablePodEvents = "/etc/crio/crio.conf.d/01-ctrcfg-enablepodevents"
 )
 
 var (
@@ -111,6 +113,17 @@ type tomlConfigCRIODefaultRuntime struct {
 	Crio struct {
 		Runtime struct {
 			DefaultRuntime string `toml:"default_runtime,omitempty"`
+		} `toml:"runtime"`
+	} `toml:"crio"`
+}
+
+// tomlConfigEnablePodEvents is used for conversions when enable-pod-events is changed
+// TOML-friendly (it has all of the explicit tables). It's just used for
+// conversions.
+type tomlConfigEnablePodEvents struct {
+	Crio struct {
+		Runtime struct {
+			EnablePodEvents bool `toml:"enable_pod_events,omitempty"`
 		} `toml:"runtime"`
 	} `toml:"crio"`
 }
@@ -270,6 +283,20 @@ func getManagedKeyReg(pool *mcfgv1.MachineConfigPool, client mcfgclientset.Inter
 	return ctrlcommon.GetManagedKey(pool, client, "99", "registries", getManagedKeyRegDeprecated(pool))
 }
 
+func getManagedKeyEventedPleg(pool *mcfgv1.MachineConfigPool) string {
+	return fmt.Sprintf("97-%s-generated-crio-evented-pleg", pool.Name)
+}
+
+func getConfigNode(ctrl *Controller, key string) (*apicfgv1.Node, error) {
+	nodeConfig, err := ctrl.nodeConfigLister.Get(ctrlcommon.ClusterNodeInstanceName)
+	if macherrors.IsNotFound(err) {
+		return nil, fmt.Errorf("missing node config key: %v", key)
+	} else if err != nil {
+		return nil, err
+	}
+	return nodeConfig, nil
+}
+
 func wrapErrorWithCondition(err error, args ...interface{}) mcfgv1.ContainerRuntimeConfigCondition {
 	var condition *mcfgv1.ContainerRuntimeConfigCondition
 	if err != nil {
@@ -319,6 +346,21 @@ func updateStorageConfig(data []byte, internal *mcfgv1.ContainerRuntimeConfigura
 	}
 
 	return newData.Bytes(), nil
+}
+
+// createEventedPlegFile creates the drop-in file enabling the evented_pleg feature
+func createEventedPlegFile() []generatedConfigFile {
+	var (
+		generatedConfigFileList []generatedConfigFile
+		err                     error
+	)
+	tomlConf := tomlConfigEnablePodEvents{}
+	tomlConf.Crio.Runtime.EnablePodEvents = true
+	generatedConfigFileList, err = addTOMLgeneratedConfigFile(generatedConfigFileList, crioDropInFilePathEnablePodEvents, tomlConf)
+	if err != nil {
+		klog.V(2).Infoln(err, "error setting enable_pod_events to crio.conf.d: %v", err)
+	}
+	return generatedConfigFileList
 }
 
 func addTOMLgeneratedConfigFile(configFileList []generatedConfigFile, path string, tomlConf interface{}) ([]generatedConfigFile, error) {

@@ -35,6 +35,7 @@ const (
 	managedFeaturesKeyPrefix      = "98"
 	managedKubeletConfigKeyPrefix = "99"
 	protectKernelDefaultsStr      = "\"protectKernelDefaults\":false"
+	eventedPlegFeaturegate        = "EventedPLEG"
 )
 
 func createNewKubeletDynamicSystemReservedIgnition(autoSystemReserved *bool, userDefinedSystemReserved map[string]string) *ign3types.File {
@@ -150,6 +151,10 @@ func getConfigNode(ctrl *Controller, key string) (*osev1.Node, error) {
 
 // updateOriginalKubeConfigwithNodeConfig updates the original Kubelet Configuration based on the Nodespecific configuration
 func updateOriginalKubeConfigwithNodeConfig(node *osev1.Node, originalKubeletConfig *kubeletconfigv1beta1.KubeletConfiguration) error {
+	// updating the kubelet configuration with the relevant Evented Pleg info present in the config node object
+	if node.Spec.EventedPleg == osev1.Enabled {
+		originalKubeletConfig.FeatureGates[eventedPlegFeaturegate] = true
+	}
 	// updating the kubelet specific fields based on the Node's workerlatency profile.
 	// (TODO): The durations can be replaced with the defined constants in the openshift/api repository once the respective changes are merged.
 	switch node.Spec.WorkerLatencyProfile {
@@ -160,11 +165,10 @@ func updateOriginalKubeConfigwithNodeConfig(node *osev1.Node, originalKubeletCon
 	case osev1.DefaultUpdateDefaultReaction:
 		originalKubeletConfig.NodeStatusUpdateFrequency = metav1.Duration{Duration: osev1.DefaultNodeStatusUpdateFrequency}
 	case emptyInput:
-		return nil
+		break
 	default:
 		return fmt.Errorf("unknown worker latency profile type found %v, failed to update the original kubelet configuration", node.Spec.WorkerLatencyProfile)
 	}
-	// The kubelet configuration can be updated based on the cgroupmode as well here.
 	return nil
 }
 
