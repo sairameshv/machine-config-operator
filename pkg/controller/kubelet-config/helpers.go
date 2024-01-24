@@ -36,6 +36,7 @@ const (
 	managedFeaturesKeyPrefix      = "98"
 	managedKubeletConfigKeyPrefix = "99"
 	protectKernelDefaultsStr      = "\"protectKernelDefaults\":false"
+	eventedPlegFeaturegate        = "EventedPLEG"
 )
 
 func createNewKubeletDynamicSystemReservedIgnition(autoSystemReserved *bool, userDefinedSystemReserved map[string]string) *ign3types.File {
@@ -165,7 +166,10 @@ func updateOriginalKubeConfigwithNodeConfig(node *osev1.Node, originalKubeletCon
 	default:
 		return fmt.Errorf("unknown worker latency profile type found %v, failed to update the original kubelet configuration", node.Spec.WorkerLatencyProfile)
 	}
-	// The kubelet configuration can be updated based on the cgroupmode as well here.
+	// updating the kubelet configuration with the relevant Evented Pleg info present in the config node object
+	if node.Spec.EventedPleg == osev1.Enabled {
+		originalKubeletConfig.FeatureGates[eventedPlegFeaturegate] = true
+	}
 	return nil
 }
 

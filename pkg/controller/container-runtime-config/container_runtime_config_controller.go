@@ -78,6 +78,7 @@ type Controller struct {
 
 	syncHandler                   func(mcp string) error
 	syncImgHandler                func(mcp string) error
+	syncNodeCfgHandler            func(mcp string) error
 	enqueueContainerRuntimeConfig func(*mcfgv1.ContainerRuntimeConfig)
 
 	ccLister       mcfglistersv1.ControllerConfigLister
@@ -104,10 +105,13 @@ type Controller struct {
 	clusterVersionLister       cligolistersv1.ClusterVersionLister
 	clusterVersionListerSynced cache.InformerSynced
 
-	featureGateAccess featuregates.FeatureGateAccess
+	nodeConfigLister       cligolistersv1.NodeLister
+	nodeConfigListerSynced cache.InformerSynced
+	featureGateAccess      featuregates.FeatureGateAccess
 
-	queue    workqueue.RateLimitingInterface
-	imgQueue workqueue.RateLimitingInterface
+	queue     workqueue.RateLimitingInterface
+	imgQueue  workqueue.RateLimitingInterface
+	nodeQueue workqueue.RateLimitingInterface
 }
 
 // New returns a new container runtime config controller
@@ -121,6 +125,7 @@ func New(
 	itmsInformer cligoinformersv1.ImageTagMirrorSetInformer,
 	icspInformer operatorinformersv1alpha1.ImageContentSourcePolicyInformer,
 	clusterVersionInformer cligoinformersv1.ClusterVersionInformer,
+	nodeConfigInformer cligoinformersv1.NodeInformer,
 	kubeClient clientset.Interface,
 	mcfgClient mcfgclientset.Interface,
 	configClient configclientset.Interface,
@@ -137,6 +142,7 @@ func New(
 		eventRecorder: ctrlcommon.NamespacedEventRecorder(eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: "machineconfigcontroller-containerruntimeconfigcontroller"})),
 		queue:         workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "machineconfigcontroller-containerruntimeconfigcontroller"),
 		imgQueue:      workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
+		nodeQueue:     workqueue.NewRateLimitingQueue(workqueue.DefaultControllerRateLimiter()),
 	}
 
 	mcrInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -169,8 +175,15 @@ func New(
 		DeleteFunc: ctrl.itmsConfDeleted,
 	})
 
+	nodeConfigInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    ctrl.nodeCfgAdded,
+		UpdateFunc: ctrl.nodeCfgUpdated,
+		DeleteFunc: ctrl.nodeCfgDeleted,
+	})
+
 	ctrl.syncHandler = ctrl.syncContainerRuntimeConfig
 	ctrl.syncImgHandler = ctrl.syncImageConfig
+	ctrl.syncNodeCfgHandler = ctrl.syncNodeConfig
 	ctrl.enqueueContainerRuntimeConfig = ctrl.enqueue
 
 	ctrl.mcpLister = mcpInformer.Lister()
@@ -197,6 +210,9 @@ func New(
 	ctrl.clusterVersionLister = clusterVersionInformer.Lister()
 	ctrl.clusterVersionListerSynced = clusterVersionInformer.Informer().HasSynced
 
+	ctrl.nodeConfigLister = nodeConfigInformer.Lister()
+	ctrl.nodeConfigListerSynced = nodeConfigInformer.Informer().HasSynced
+
 	ctrl.featureGateAccess = featureGateAccess
 
 	return ctrl
@@ -207,9 +223,10 @@ func (ctrl *Controller) Run(workers int, stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
 	defer ctrl.queue.ShutDown()
 	defer ctrl.imgQueue.ShutDown()
+	defer ctrl.nodeQueue.ShutDown()
 
 	if !cache.WaitForCacheSync(stopCh, ctrl.mcpListerSynced, ctrl.mccrListerSynced, ctrl.ccListerSynced,
-		ctrl.imgListerSynced, ctrl.icspListerSynced, ctrl.idmsListerSynced, ctrl.itmsListerSynced, ctrl.clusterVersionListerSynced) {
+		ctrl.imgListerSynced, ctrl.icspListerSynced, ctrl.idmsListerSynced, ctrl.itmsListerSynced, ctrl.clusterVersionListerSynced, ctrl.nodeConfigListerSynced) {
 		return
 	}
 
@@ -222,6 +239,9 @@ func (ctrl *Controller) Run(workers int, stopCh <-chan struct{}) {
 
 	// Just need one worker for the image config
 	go wait.Until(ctrl.imgWorker, time.Second, stopCh)
+
+	// single worker for the node config
+	go wait.Until(ctrl.nodeCfgWorker, time.Second, stopCh)
 
 	<-stopCh
 }
@@ -282,6 +302,18 @@ func (ctrl *Controller) itmsConfUpdated(_, _ interface{}) {
 
 func (ctrl *Controller) itmsConfDeleted(_ interface{}) {
 	ctrl.imgQueue.Add("openshift-config")
+}
+
+func (ctrl *Controller) nodeCfgAdded(obj interface{}) {
+	ctrl.nodeQueue.Add("node-config")
+}
+
+func (ctrl *Controller) nodeCfgUpdated(oldObj, newObj interface{}) {
+	ctrl.nodeQueue.Add("node-config")
+}
+
+func (ctrl *Controller) nodeCfgDeleted(obj interface{}) {
+	ctrl.nodeQueue.Add("node-config")
 }
 
 func (ctrl *Controller) updateContainerRuntimeConfig(oldObj, newObj interface{}) {
@@ -363,6 +395,11 @@ func (ctrl *Controller) imgWorker() {
 	}
 }
 
+func (ctrl *Controller) nodeCfgWorker() {
+	for ctrl.processNextNodeCfgWorkItem() {
+	}
+}
+
 func (ctrl *Controller) processNextWorkItem() bool {
 	key, quit := ctrl.queue.Get()
 	if quit {
@@ -385,6 +422,19 @@ func (ctrl *Controller) processNextImgWorkItem() bool {
 
 	err := ctrl.syncImgHandler(key.(string))
 	ctrl.handleImgErr(err, key)
+
+	return true
+}
+
+func (ctrl *Controller) processNextNodeCfgWorkItem() bool {
+	key, quit := ctrl.nodeQueue.Get()
+	if quit {
+		return false
+	}
+	defer ctrl.nodeQueue.Done(key)
+
+	err := ctrl.syncNodeCfgHandler(key.(string))
+	ctrl.handleNodeCfgErr(err, key)
 
 	return true
 }
@@ -423,6 +473,24 @@ func (ctrl *Controller) handleImgErr(err error, key interface{}) {
 	klog.V(2).Infof("Dropping image config %q out of the queue: %v", key, err)
 	ctrl.imgQueue.Forget(key)
 	ctrl.imgQueue.AddAfter(key, 1*time.Minute)
+}
+
+func (ctrl *Controller) handleNodeCfgErr(err error, key interface{}) {
+	if err == nil {
+		ctrl.nodeQueue.Forget(key)
+		return
+	}
+
+	if ctrl.nodeQueue.NumRequeues(key) < maxRetries {
+		klog.V(2).Infof("Error syncing node config %v: %v", key, err)
+		ctrl.nodeQueue.AddRateLimited(key)
+		return
+	}
+
+	utilruntime.HandleError(err)
+	klog.V(2).Infof("Dropping node config %q out of the queue: %v", key, err)
+	ctrl.nodeQueue.Forget(key)
+	ctrl.nodeQueue.AddAfter(key, 1*time.Minute)
 }
 
 // generateOriginalContainerRuntimeConfigs returns rendered default storage, registries and policy config files
@@ -1096,4 +1164,61 @@ func (ctrl *Controller) getPoolsForContainerRuntimeConfig(config *mcfgv1.Contain
 	}
 
 	return pools, nil
+}
+
+func (ctrl *Controller) syncNodeConfig(key string) error {
+	startTime := time.Now()
+	klog.V(4).Infof("Started syncing node config %q (%v)", key, startTime)
+	defer func() {
+		klog.V(4).Infof("Finished syncing node config %q (%v)", key, time.Since(startTime))
+	}()
+
+	// Fetch the Node config
+	nodeConfig, err := getConfigNode(ctrl, key)
+	if err != nil {
+		err := fmt.Errorf("could not fetch Node config: %w", err)
+		return err
+	}
+	// cri-o drop-in file, MC are not created if the EventedPleg is Disabled
+	if nodeConfig.Spec.EventedPleg == "" || nodeConfig.Spec.EventedPleg == apicfgv1.Disabled {
+		return nil
+	}
+	sel, err := metav1.LabelSelectorAsSelector(metav1.AddLabelToSelector(&metav1.LabelSelector{}, builtInLabelKey, ""))
+	if err != nil {
+		return err
+	}
+	// Find all the MCO built in MachineConfigPools
+	mcpPools, err := ctrl.mcpLister.List(sel)
+	if err != nil {
+		return err
+	}
+	// Create the crio-enable-pod-events MC for all the available pools
+	for _, pool := range mcpPools {
+		managedKey := getManagedKeyEventedPleg(pool)
+		mc, err := ctrl.client.MachineconfigurationV1().MachineConfigs().Get(context.TODO(), managedKey, metav1.GetOptions{})
+		isNotFound := errors.IsNotFound(err)
+		if err != nil && !isNotFound {
+			return fmt.Errorf("error checking for %s machine config: %v", managedKey, err)
+		}
+
+		tempIgnCfg := ctrlcommon.NewIgnConfig()
+		mc, err = ctrlcommon.MachineConfigFromIgnConfig(pool.Name, managedKey, tempIgnCfg)
+		if err != nil {
+			return fmt.Errorf("could not create crio-evented-pleg MachineConfig from new Ignition config: %v", err)
+		}
+		rawCapsIgnition, err := json.Marshal(createNewIgnition(createEventedPlegFile()))
+		if err != nil {
+			return fmt.Errorf("error marshalling crio-evented-pleg config ignition: %v", err)
+		}
+		mc.Spec.Config.Raw = rawCapsIgnition
+		// Create the crio-evented-pleg MC
+		if err := retry.RetryOnConflict(updateBackoff, func() error {
+			_, err = ctrl.client.MachineconfigurationV1().MachineConfigs().Create(context.TODO(), mc, metav1.CreateOptions{})
+			return err
+		}); err != nil {
+			return fmt.Errorf("could not create MachineConfig for crio-evented-pleg: %v", err)
+		}
+		klog.Infof("Applied Evented Pleg MC %v on MachineConfigPool %v", managedKey, pool.Name)
+	}
+	return nil
 }

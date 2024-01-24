@@ -173,6 +173,7 @@ func createControllers(ctx *ctrlcommon.ControllerContext) []ctrlcommon.Controlle
 			ctx.ConfigInformerFactory.Config().V1().ImageTagMirrorSets(),
 			ctx.OperatorInformerFactory.Operator().V1alpha1().ImageContentSourcePolicies(),
 			ctx.ConfigInformerFactory.Config().V1().ClusterVersions(),
+			ctx.ConfigInformerFactory.Config().V1().Nodes(),
 			ctx.ClientBuilder.KubeClientOrDie("container-runtime-config-controller"),
 			ctx.ClientBuilder.MachineConfigClientOrDie("container-runtime-config-controller"),
 			ctx.ClientBuilder.ConfigClientOrDie("container-runtime-config-controller"),

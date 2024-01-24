@@ -53,7 +53,6 @@ func RunContainerRuntimeBootstrap(templateDir string, crconfigs []*mcfgv1.Contai
 				crioFileConfigs := createCRIODropinFiles(cfg)
 				configFileList = append(configFileList, crioFileConfigs...)
 			}
-
 			ctrRuntimeConfigIgn := createNewIgnition(configFileList)
 			if err != nil {
 				return nil, fmt.Errorf("could not marshal container runtime ignition: %w", err)
