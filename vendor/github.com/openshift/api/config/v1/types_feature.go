@@ -173,7 +173,7 @@ var FeatureSets = map[FeatureSet]*FeatureGateEnabledDisabled{
 		with(dynamicResourceAllocation).
 		with(gateGatewayAPI).
 		with(maxUnavailableStatefulSet).
-		without(eventedPleg).
+		with(eventedPleg).
 		with(sigstoreImageVerification).
 		with(gcpLabelsTags).
 		with(gcpClusterHostedDNS).
@@ -195,6 +195,8 @@ var FeatureSets = map[FeatureSet]*FeatureGateEnabledDisabled{
 		with(onClusterBuild).
 		with(signatureStores).
 		with(pinnedImages).
+		with(upgradeStatus).
+		with(translateStreamCloseWebsocketRequests).
 		toFeatures(defaultFeatures),
 	LatencySensitive: newDefaultFeatures().
 		toFeatures(defaultFeatures),
@@ -213,6 +215,7 @@ var defaultFeatures = &FeatureGateEnabledDisabled{
 		privateHostedZoneAWS,
 		buildCSIVolumes,
 		kmsv1,
+		eventedPleg,
 	},
 	Disabled: []FeatureGateDescription{
 		disableKubeletCloudCredentialProviders, // We do not currently ship the correct config to use the external credentials provider.
