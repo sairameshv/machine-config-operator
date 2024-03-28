@@ -32,7 +32,7 @@ import (
 
 const (
 	emptyInput                    = ""
-	managedNodeConfigKeyPrefix    = "97"
+	managedNodeConfigKeyPrefix    = "99"
 	managedFeaturesKeyPrefix      = "98"
 	managedKubeletConfigKeyPrefix = "99"
 	protectKernelDefaultsStr      = "\"protectKernelDefaults\":false"
@@ -166,10 +166,12 @@ func updateOriginalKubeConfigwithNodeConfig(node *osev1.Node, originalKubeletCon
 	default:
 		return fmt.Errorf("unknown worker latency profile type found %v, failed to update the original kubelet configuration", node.Spec.WorkerLatencyProfile)
 	}
-	// updating the kubelet configuration with the relevant Evented Pleg info present in the config node object
-	if node.Spec.EventedPleg == osev1.Enabled {
-		originalKubeletConfig.FeatureGates[eventedPlegFeaturegate] = true
-	}
+	/*
+		// updating the kubelet configuration with the relevant Evented Pleg info present in the config node object
+		if node.Spec.EventedPleg == osev1.Enabled {
+			originalKubeletConfig.FeatureGates[eventedPlegFeaturegate] = true
+		}
+	*/
 	return nil
 }
 

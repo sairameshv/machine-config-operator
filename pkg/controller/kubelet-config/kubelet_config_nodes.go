@@ -126,6 +126,8 @@ func (ctrl *Controller) syncNodeConfigHandler(key string) error {
 				return err
 			}
 		}
+		// Enable evented pleg feature by default
+		originalKubeConfig.FeatureGates[eventedPlegFeaturegate] = true
 		// Encode the new config into raw JSON
 		cfgIgn, err := kubeletConfigToIgnFile(originalKubeConfig)
 		if err != nil {

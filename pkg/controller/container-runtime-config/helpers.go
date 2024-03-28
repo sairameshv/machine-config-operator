@@ -343,7 +343,7 @@ func getManagedKeyReg(pool *mcfgv1.MachineConfigPool, client mcfgclientset.Inter
 }
 
 func getManagedKeyEventedPleg(pool *mcfgv1.MachineConfigPool) string {
-	return fmt.Sprintf("97-%s-generated-crio-evented-pleg", pool.Name)
+	return fmt.Sprintf("99-%s-generated-crio-evented-pleg", pool.Name)
 }
 
 func getConfigNode(ctrl *Controller, key string) (*apicfgv1.Node, error) {

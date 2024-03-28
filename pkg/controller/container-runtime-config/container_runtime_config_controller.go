@@ -1174,15 +1174,17 @@ func (ctrl *Controller) syncNodeConfig(key string) error {
 	}()
 
 	// Fetch the Node config
-	nodeConfig, err := getConfigNode(ctrl, key)
+	_, err := getConfigNode(ctrl, key)
 	if err != nil {
 		err := fmt.Errorf("could not fetch Node config: %w", err)
 		return err
 	}
-	// cri-o drop-in file, MC are not created if the EventedPleg is Disabled
-	if nodeConfig.Spec.EventedPleg == "" || nodeConfig.Spec.EventedPleg == apicfgv1.Disabled {
-		return nil
-	}
+	/*
+		// cri-o drop-in file, MC are not created if the EventedPleg is Disabled
+		if nodeConfig.Spec.EventedPleg == "" || nodeConfig.Spec.EventedPleg == apicfgv1.Disabled {
+			return nil
+		}
+	*/
 	sel, err := metav1.LabelSelectorAsSelector(metav1.AddLabelToSelector(&metav1.LabelSelector{}, builtInLabelKey, ""))
 	if err != nil {
 		return err

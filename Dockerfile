@@ -21,19 +21,19 @@ RUN cd / && tar xf /tmp/instroot.tar && rm -f /tmp/instroot.tar
 COPY --from=rhel9-builder /go/src/github.com/openshift/machine-config-operator/instroot/usr/bin/machine-config-daemon /usr/bin/machine-config-daemon.rhel9
 COPY install /manifests
 
-RUN if [ "${TAGS}" = "fcos" ]; then \
-    # comment out non-base/extensions image-references entirely for fcos
-    sed -i '/- name: rhel-coreos-/,+3 s/^/#/' /manifests/image-references && \
-    # also remove extensions from the osimageurl configmap (if we don't, oc won't rewrite it, and the placeholder value will survive and get used)
-    sed -i '/baseOSExtensionsContainerImage:/ s/^/#/' /manifests/0000_80_machine-config-operator_05_osimageurl.yaml && \
-    # rewrite image names for fcos
-    sed -i 's/rhel-coreos/fedora-coreos/g' /manifests/*; \
-    elif [ "${TAGS}" = "scos" ]; then \
-    # rewrite image names for scos
-    sed -i 's/rhel-coreos/centos-stream-coreos-9/g' /manifests/*; fi && \
-    dnf -y install 'nmstate >= 2.2.10' && \
-    if ! rpm -q util-linux; then dnf install -y util-linux; fi && \
-    dnf clean all && rm -rf /var/cache/dnf/*
+#UN if [ "${TAGS}" = "fcos" ]; then \
+#   # comment out non-base/extensions image-references entirely for fcos
+#   sed -i '/- name: rhel-coreos-/,+3 s/^/#/' /manifests/image-references && \
+#   # also remove extensions from the osimageurl configmap (if we don't, oc won't rewrite it, and the placeholder value will survive and get used)
+#   sed -i '/baseOSExtensionsContainerImage:/ s/^/#/' /manifests/0000_80_machine-config-operator_05_osimageurl.yaml && \
+#   # rewrite image names for fcos
+#   sed -i 's/rhel-coreos/fedora-coreos/g' /manifests/*; \
+#   elif [ "${TAGS}" = "scos" ]; then \
+#   # rewrite image names for scos
+#   sed -i 's/rhel-coreos/centos-stream-coreos-9/g' /manifests/*; fi && \
+#   dnf -y install 'nmstate >= 2.2.10' && \
+#   if ! rpm -q util-linux; then dnf install -y util-linux; fi && \
+#   dnf clean all && rm -rf /var/cache/dnf/*
 COPY templates /etc/mcc/templates
 ENTRYPOINT ["/usr/bin/machine-config-operator"]
 LABEL io.openshift.release.operator true
