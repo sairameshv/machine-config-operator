@@ -64,13 +64,17 @@ func TestMetrics(t *testing.T) {
 			},
 		},
 	}
-
+	configNode := &configv1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec:       configv1.NodeSpec{},
+	}
 	operatorIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 	optr.clusterOperatorLister = configlistersv1.NewClusterOperatorLister(operatorIndexer)
 	operatorIndexer.Add(co)
 	operatorIndexer.Add(kasOperator)
 
-	optr.configClient = fakeconfigclientset.NewSimpleClientset(co, kasOperator)
+	//optr.configClient = fakeconfigclientset.NewSimpleClientset(co, kasOperator, configNode)
+	optr.configClient = fakeconfigclientset.NewSimpleClientset(co, kasOperator, configNode)
 	err := optr.syncAll([]syncFunc{
 		{name: "fn1",
 			fn: func(config *renderConfig, co *configv1.ClusterOperator) error { return nil },

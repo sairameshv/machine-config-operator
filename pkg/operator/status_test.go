@@ -690,6 +690,11 @@ func TestOperatorSyncStatus(t *testing.T) {
 
 		configMapIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 		optr.mcoCmLister = corelisterv1.NewConfigMapLister(configMapIndexer)
+		
+		configNode := &configv1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       configv1.NodeSpec{},
+		}
 
 		for j, sync := range testCase.syncs {
 			optr.inClusterBringup = sync.inClusterBringUp
@@ -698,7 +703,7 @@ func TestOperatorSyncStatus(t *testing.T) {
 			} else {
 				optr.vStore.Set("operator", "test-version")
 			}
-			optr.configClient = fakeconfigclientset.NewSimpleClientset(co, kasOperator)
+			optr.configClient = fakeconfigclientset.NewSimpleClientset(co, kasOperator, configNode)
 			err := optr.syncAll(sync.syncFuncs)
 			if sync.expectOperatorFail {
 				assert.NotNil(t, err, "test case %d, sync call %d, expected an error", idx, j)
